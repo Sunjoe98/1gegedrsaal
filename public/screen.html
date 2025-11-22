@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>1 gegen 100 – Präsentation</title>
+  <link rel="stylesheet" href="/style.css" />
+  <style>
+    body { background: radial-gradient(circle at 20% 20%, #0f172a, #0b0f16 60%); }
+    main { max-width: 1100px; }
+    .question { font-size: 26px; line-height: 1.3; }
+    .options { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+    .options .answer-btn { font-size: 18px; }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="status-line">
+      <div class="badge">Topf: <span id="pot">0</span> CHF</div>
+      <div class="badge">Verbleibende H: <span id="mob-count">0</span></div>
+      <div class="badge">Phase: <span id="phase"></span></div>
+      <div class="badge">Kandidat: <span id="candidate-name">–</span></div>
+    </div>
+    <div class="meter" style="margin:12px 0 20px 0;"><div id="timer" style="width:0%;"></div></div>
+
+    <div class="card">
+      <div id="question" class="question"></div>
+      <div id="options" class="options" style="margin-top:12px;"></div>
+    </div>
+  </main>
+
+  <script>
+    const timerFill = document.getElementById('timer');
+    const source = new EventSource('/api/stream');
+    source.addEventListener('state', (event) => {
+      const state = JSON.parse(event.data);
+      document.getElementById('pot').textContent = state.pot;
+      document.getElementById('mob-count').textContent = state.mobRemaining;
+      document.getElementById('phase').textContent = state.phase;
+      const candidate = state.players.find((p) => p.id === state.candidateId);
+      document.getElementById('candidate-name').textContent = candidate ? candidate.nickname : '–';
+
+      if (state.phase === 'question' && state.deadline) {
+        const percent = Math.max(0, Math.min(100, ((state.deadline - Date.now()) / ${QUESTION_DURATION_MS}) * 100));
+        timerFill.style.width = `${percent}%`;
+      } else {
+        timerFill.style.width = '0%';
+      }
+
+      const q = document.getElementById('question');
+      const opts = document.getElementById('options');
+      q.innerHTML = '';
+      opts.innerHTML = '';
+      if (state.question) {
+        q.textContent = `${state.question.topic}: ${state.question.text}`;
+        Object.entries(state.question.options).forEach(([key, text]) => {
+          const row = document.createElement('div');
+          row.className = 'answer-btn ' + (state.question.correct === key ? 'correct' : '');
+          row.textContent = `${key}) ${text}`;
+          opts.appendChild(row);
+        });
+      } else {
+        q.innerHTML = '<p class="notice">Warte auf die nächste Frage…</p>';
+      }
+    });
+  </script>
+</body>
+</html>

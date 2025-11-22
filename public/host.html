@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>1 gegen 100 – Host</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <main>
+    <h1>Regie-Dashboard</h1>
+    <div class="card">
+      <div class="status-line">
+        <button id="start-btn">Spiel starten</button>
+        <button id="next-btn">Nächste Phase</button>
+        <span class="badge">Phase: <span id="phase-label">lobby</span></span>
+        <span class="badge">Topf: <span id="pot">0</span> CHF</span>
+        <span class="badge">Verbleibende H: <span id="mob-count">0</span></span>
+      </div>
+      <div class="meter"><div id="timer-fill" style="width:0%;"></div></div>
+      <div id="question"></div>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <h3>Spieler:innen</h3>
+        <select id="candidate-select"></select>
+        <button id="assign-candidate">Als Einzelkandidat:in setzen</button>
+        <table class="table" id="players-table"></table>
+      </div>
+      <div class="card">
+        <h3>Hinweise</h3>
+        <p class="notice">Nutze „Spiel starten“, um bei Frage 1 zu beginnen. „Nächste Phase“ wertet laufende Fragen aus oder springt zur nächsten Frage.</p>
+        <p class="notice">Die Kandidat:in kann per Dropdown neu gesetzt werden. Eliminierte Herausfordernde bleiben gelistet.</p>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    const startBtn = document.getElementById('start-btn');
+    const nextBtn = document.getElementById('next-btn');
+    const candidateSelect = document.getElementById('candidate-select');
+    const assignBtn = document.getElementById('assign-candidate');
+
+    startBtn.onclick = () => fetch('/api/host/start', { method: 'POST' });
+    nextBtn.onclick = () => fetch('/api/host/next', { method: 'POST' });
+    assignBtn.onclick = () => {
+      const playerId = candidateSelect.value;
+      fetch('/api/set-candidate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ playerId })
+      });
+    };
+
+    const source = new EventSource('/api/stream');
+    source.addEventListener('state', (event) => {
+      const state = JSON.parse(event.data);
+      renderState(state);
+    });
+
+    function renderState(state) {
+      document.getElementById('phase-label').textContent = state.phase;
+      document.getElementById('pot').textContent = state.pot;
+      document.getElementById('mob-count').textContent = state.mobRemaining;
+
+      const timerFill = document.getElementById('timer-fill');
+      if (state.phase === 'question' && state.deadline) {
+        const percent = Math.max(0, Math.min(100, ((state.deadline - Date.now()) / ${QUESTION_DURATION_MS}) * 100));
+        timerFill.style.width = `${percent}%`;
+      } else {
+        timerFill.style.width = '0%';
+      }
+
+      const q = document.getElementById('question');
+      q.innerHTML = '';
+      if (state.question) {
+        const h = document.createElement('h3');
+        h.textContent = `${state.question.topic}: ${state.question.text}`;
+        q.appendChild(h);
+        const options = document.createElement('div');
+        options.className = 'answers';
+        Object.entries(state.question.options).forEach(([key, text]) => {
+          const row = document.createElement('div');
+          row.className = 'answer-btn ' + (state.question.correct === key ? 'correct' : '');
+          row.textContent = `${key}) ${text}`;
+          options.appendChild(row);
+        });
+        q.appendChild(options);
+      }
+
+      candidateSelect.innerHTML = '';
+      state.players.forEach((p) => {
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = `${p.nickname} ${p.eliminated ? '❌' : ''}`;
+        if (p.id === state.candidateId) opt.selected = true;
+        candidateSelect.appendChild(opt);
+      });
+
+      const table = document.getElementById('players-table');
+      table.innerHTML = '<tr><th>Nickname</th><th>Rolle</th><th>Status</th></tr>';
+      state.players.forEach((p) => {
+        const row = document.createElement('tr');
+        row.innerHTML = `<td>${p.nickname}</td><td>${p.role}</td><td>${p.eliminated ? 'eliminiert' : 'aktiv'}</td>`;
+        table.appendChild(row);
+      });
+    }
+  </script>
+</body>
+</html>

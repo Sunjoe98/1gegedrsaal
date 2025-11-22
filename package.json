@@ -1,0 +1,14 @@
+{
+  "name": "1gegedrsaal",
+  "version": "1.0.0",
+  "description": "Webbasiertes Live-Spiel 1 gegen 100 (Prototyp)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "echo \"No automated tests configured\""
+  },
+  "keywords": ["game", "quiz", "realtime", "sse"],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs"
+}
