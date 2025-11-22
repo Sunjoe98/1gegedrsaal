@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>1 gegen 100 – Spieler</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <main>
+    <h1>Mitspielen</h1>
+    <div class="card" id="login-card">
+      <label for="nickname">Nickname</label>
+      <input id="nickname" placeholder="z.B. Rätselfuchs" />
+      <label for="role">Rolle</label>
+      <select id="role">
+        <option value="mob">Herausforderer:in</option>
+        <option value="candidate">Einzelkandidat:in</option>
+      </select>
+      <button id="join">Beitreten</button>
+      <p class="notice">Nach dem Beitritt werden Antworten nur während des Countdowns gewertet.</p>
+    </div>
+
+    <div class="card" id="play-card" style="display:none;">
+      <div class="status-line">
+        <span class="badge" id="you-label">–</span>
+        <span class="badge">Topf: <span id="pot">0</span> CHF</span>
+        <span class="badge">Verbleibende H: <span id="mob-count">0</span></span>
+        <span class="badge" id="phase-badge"></span>
+      </div>
+      <div class="meter"><div id="timer-fill" style="width:0%;"></div></div>
+      <div id="question-block" style="margin-top:12px;"></div>
+    </div>
+  </main>
+
+  <script>
+    let playerId = localStorage.getItem('playerId') || null;
+    let playerRole = localStorage.getItem('playerRole') || null;
+    const joinBtn = document.getElementById('join');
+    const loginCard = document.getElementById('login-card');
+    const playCard = document.getElementById('play-card');
+
+    async function join() {
+      const nickname = document.getElementById('nickname').value || 'Gast';
+      const role = document.getElementById('role').value;
+      const res = await fetch('/api/join', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nickname, role })
+      });
+      const data = await res.json();
+      playerId = data.playerId;
+      playerRole = role;
+      localStorage.setItem('playerId', playerId);
+      localStorage.setItem('playerRole', role);
+      loginCard.style.display = 'none';
+      playCard.style.display = 'block';
+      connectStream();
+    }
+
+    joinBtn.addEventListener('click', join);
+
+    let source;
+    function connectStream() {
+      if (!playerId) return;
+      source = new EventSource('/api/stream');
+      source.addEventListener('state', (event) => {
+        const payload = JSON.parse(event.data);
+        renderState(payload);
+      });
+    }
+
+    function renderState(state) {
+      if (!playerId) return;
+      playCard.style.display = 'block';
+      loginCard.style.display = 'none';
+      const me = state.players.find((p) => p.id === playerId);
+      document.getElementById('you-label').textContent = me ? `${me.nickname} (${me.role === 'candidate' ? 'EK' : 'H'})` : 'Gast';
+      document.getElementById('pot').textContent = state.pot;
+      document.getElementById('mob-count').textContent = state.mobRemaining;
+      document.getElementById('phase-badge').textContent = state.phase.toUpperCase();
+
+      const questionBlock = document.getElementById('question-block');
+      questionBlock.innerHTML = '';
+      const timerFill = document.getElementById('timer-fill');
+
+      if (state.phase === 'question' && state.question) {
+        const now = Date.now();
+        const percent = state.deadline ? Math.max(0, Math.min(100, ((state.deadline - now) / ${QUESTION_DURATION_MS}) * 100)) : 0;
+        timerFill.style.width = `${percent}%`;
+
+        const title = document.createElement('h3');
+        title.textContent = `${state.question.topic}: ${state.question.text}`;
+        questionBlock.appendChild(title);
+        const answersDiv = document.createElement('div');
+        answersDiv.className = 'answers';
+        Object.entries(state.question.options).forEach(([key, text]) => {
+          const btn = document.createElement('button');
+          btn.className = 'answer-btn';
+          btn.textContent = `${key}) ${text}`;
+          btn.onclick = () => submitAnswer(key);
+          answersDiv.appendChild(btn);
+        });
+        questionBlock.appendChild(answersDiv);
+      } else if (state.phase === 'reveal' && state.question) {
+        timerFill.style.width = '0%';
+        const title = document.createElement('h3');
+        title.textContent = `${state.question.topic}: ${state.question.text}`;
+        questionBlock.appendChild(title);
+        const answersDiv = document.createElement('div');
+        answersDiv.className = 'answers';
+        Object.entries(state.question.options).forEach(([key, text]) => {
+          const btn = document.createElement('div');
+          btn.className = 'answer-btn ' + (state.question.correct === key ? 'correct' : 'wrong');
+          btn.textContent = `${key}) ${text}`;
+          answersDiv.appendChild(btn);
+        });
+        questionBlock.appendChild(answersDiv);
+      } else if (state.phase === 'finished') {
+        timerFill.style.width = '0%';
+        const h = document.createElement('h3');
+        h.textContent = state.reveal?.outcome === 'candidate_won' ? 'Alle Herausfordernden eliminiert! 🎉' : 'Die Einzelkandidat:in ist ausgeschieden.';
+        questionBlock.appendChild(h);
+      } else {
+        timerFill.style.width = '0%';
+        questionBlock.innerHTML = '<p class="notice">Warte auf die nächste Frage…</p>';
+      }
+    }
+
+    async function submitAnswer(option) {
+      if (!playerId) return;
+      await fetch('/api/answer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ playerId, option })
+      });
+    }
+
+    if (playerId) {
+      loginCard.style.display = 'none';
+      playCard.style.display = 'block';
+      connectStream();
+    }
+  </script>
+</body>
+</html>
